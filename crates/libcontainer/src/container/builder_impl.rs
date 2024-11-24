@@ -9,7 +9,7 @@ use nix::unistd::Pid;
 use oci_spec::runtime::Spec;
 
 use super::{Container, ContainerStatus};
-use crate::error::{LibcontainerError, MissingSpecError};
+use crate::error::{CreateContainerError, LibcontainerError, MissingSpecError};
 use crate::notify_socket::NotifyListener;
 use crate::process::args::{ContainerArgs, ContainerType};
 use crate::process::intel_rdt::delete_resctrl_subdirectory;
@@ -60,13 +60,19 @@ impl ContainerBuilderImpl {
             Err(outer) => {
                 // Only the init container should be cleaned up in the case of
                 // an error.
-                if matches!(self.container_type, ContainerType::InitContainer) {
-                    self.cleanup_container()?;
-                }
+                let cleanup_err = if self.is_init_container() {
+                    self.cleanup_container().err()
+                } else {
+                    None
+                };
 
-                Err(outer)
+                Err(CreateContainerError::new(outer, cleanup_err).into())
             }
         }
+    }
+
+    fn is_init_container(&self) -> bool {
+        matches!(self.container_type, ContainerType::InitContainer)
     }
 
     fn run_container(&mut self) -> Result<Pid, LibcontainerError> {
